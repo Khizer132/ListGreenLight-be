@@ -21,6 +21,23 @@ const propertySchema = new mongoose.Schema(
       unique: true,
       sparse: true,
     },
+    photos: [
+      {
+        url: { 
+          type: String, 
+          required: true 
+        },
+        publicId: { 
+          type: String,
+          required: true
+        },
+        roomType: {
+          type: String,
+          enum: ["kitchen", "living-room", "primary-bedroom", "primary-bathroom"],
+          required: true,
+        },
+      },
+    ],
   },
   { timestamps: true }
 )

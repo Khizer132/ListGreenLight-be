@@ -2,7 +2,6 @@ import Stripe from "stripe"
 import Property from "../models/property.js"
 import Payment from "../models/payment.js"
 import crypto from "crypto"
-import property from "../models/property.js"
 
 // Lazy initialization
 let stripe
@@ -14,7 +13,7 @@ const getStripe = () => {
     stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
   }
   return stripe
-}
+} 
 
 export const stripeWebhook = async (req, res) => {
   const stripeInstance = getStripe()
@@ -30,8 +29,6 @@ export const stripeWebhook = async (req, res) => {
   } catch (err) {
     return res.status(400).send(`Webhook Error: ${err.message}`)
   }
-
-
 
   // Payement Intent Success
   if (event.type === "payment_intent.succeeded") {
@@ -60,6 +57,5 @@ export const stripeWebhook = async (req, res) => {
       )
     }
   }
-
   res.json({ received: true })
 }

@@ -1,5 +1,9 @@
 import User from "../models/user.js"
 import Property from "../models/property.js"
+import Payment from "../models/payment.js"
+import Stripe from "stripe"
+import crypto from "crypto"
+import cloudinary from "../config/cloudinary.js"
 
 // create property => post /api/property/create-property
 export const createProperty = async (req, res) => {
@@ -58,6 +62,57 @@ export const getUploadLink = async (req, res) => {
   }
 }
 
+// get upload link => POST /api/property/confirm-payment-and-upload-link
+// Verifies payment with Stripe, sets property paid + token, returns uploadToken
+export const confirmPaymentAndGetUploadLink = async (req, res) => {
+  try {
+    const { propertyId, paymentIntentId } = req.body
+
+    if (!propertyId || !paymentIntentId) {
+      return res.status(400).json({ message: "propertyId and paymentIntentId are required" })
+    }
+
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
+    const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId)
+
+    if (paymentIntent.status !== "succeeded") {
+      return res.status(400).json({ message: "Payment not completed" })
+    }
+
+    const metaPropertyId = paymentIntent.metadata?.propertyId
+    if (metaPropertyId !== propertyId) {
+      return res.status(400).json({ message: "Payment does not match this property" })
+    }
+
+    let property = await Property.findById(propertyId)
+    if (!property) {
+      return res.status(404).json({ message: "Property not found" })
+    }
+
+    if (!property.uploadToken) {
+      property.uploadToken = crypto.randomBytes(16).toString("hex")
+    }
+    property.status = "paid"
+    await property.save()
+
+    await Payment.findOneAndUpdate(
+      { propertyId },
+      {
+        propertyId,
+        stripeSessionId: paymentIntent.id,
+        amount: paymentIntent.amount,
+        status: "paid",
+      },
+      { upsert: true, new: true }
+    )
+
+    return res.json({ uploadToken: property.uploadToken })
+  } catch (error) {
+    console.error("Confirm payment and get upload link error:", error)
+    return res.status(500).json({ message: "Server error" })
+  }
+}
+
 // GET property by upload token => get /api/property/by-upload-token/:token
 export const getPropertyByUploadToken = async (req, res) => {
   try {
@@ -75,6 +130,7 @@ export const getPropertyByUploadToken = async (req, res) => {
     return res.json({
       address: property.address,
       status: property.status,
+      photos: property.photos || [],
       user: {
         name: property.userId?.name,
         email: property.userId?.email,
@@ -99,3 +155,67 @@ export const getDetails = async (req, res) => {
     });
 }
 
+
+// upload photo => post /api/property/upload-photo
+export const uploadPhoto = async (req, res) => {
+  try {
+    const token = req.body.token
+    const roomType = req.body.roomType
+    const file = req.file
+
+    if (!token || !roomType || !file) {
+      return res.status(400).json({
+        message: "token, roomType, and photo file are required",
+      })
+    }
+
+    const allowedRooms = [
+      "kitchen",
+      "living-room",
+      "primary-bedroom",
+      "primary-bathroom",
+    ]
+    if (!allowedRooms.includes(roomType)) {
+      return res.status(400).json({ message: "Invalid roomType" })
+    }
+
+    const property = await Property.findOne({ uploadToken: token })
+
+    if (!property) {
+      return res.status(404).json({ message: "Invalid or expired upload link" })
+    }
+
+    if (property.status !== "paid") {
+      return res.status(400).json({ message: "Payment not completed" })
+    }
+
+    if (!Array.isArray(property.photos)) {
+      property.photos = []
+    }
+    property.photos = property.photos.filter((p) => p.roomType !== roomType)
+    await property.save()
+
+    const result = await new Promise((resolve, reject) => {
+      cloudinary.uploader.upload_stream(
+        {
+          folder: "listgreenlight",
+          resource_type: "image",
+        },
+        (err, result) => (err ? reject(err) : resolve(result))
+      ).end(file.buffer)
+    })
+
+    const newPhoto = {
+      url: result.secure_url,
+      publicId: result.public_id,
+      roomType,
+    }
+    property.photos.push(newPhoto)
+    await property.save()
+
+    return res.status(201).json({ photo: newPhoto })
+  } catch (error) {
+    console.error("Upload photo error:", error)
+    return res.status(500).json({ message: "Server error" })
+  }
+}
