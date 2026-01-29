@@ -29,7 +29,8 @@ import propertyRoutes from './routes/propertyRoutes.js'
 import paymentRoutes from './routes/paymentRoutes.js'
 
 app.use("/api/property", propertyRoutes);
-app.use("/api/payment", paymentRoutes)
+app.use("/api/payment", paymentRoutes);
+
 
 
 connectDB();

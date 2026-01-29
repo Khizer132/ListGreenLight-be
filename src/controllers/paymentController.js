@@ -6,14 +6,16 @@ let stripe
 const getStripe = () => {
   if (!stripe) {
     if (!process.env.STRIPE_SECRET_KEY) {
-      throw new Error('STRIPE_SECRET_KEY is not defined in environment variables')
+      throw new Error("STRIPE_SECRET_KEY is not defined in environment variables")
     }
     stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
   }
   return stripe
 }
 
-export const createCheckoutSession = async (req, res) => {
+// POST /api/payment/create-intent
+// body: { propertyId }
+export const createPaymentIntent = async (req, res) => {
   try {
     const stripeInstance = getStripe()
     const { propertyId } = req.body
@@ -22,30 +24,16 @@ export const createCheckoutSession = async (req, res) => {
       return res.status(400).json({ message: "Property ID is required" })
     }
 
-    const session = await stripeInstance.checkout.sessions.create({
-      mode: "payment",
-      line_items: [
-        {
-          price_data: {
-            currency: "usd",
-            product_data: {
-              name: "ListGreenLight – Property Listing"
-            },
-            unit_amount: 1999 
-          },
-          quantity: 1
-        }
-      ],
-      metadata: {
-        propertyId
-      },
-      success_url: "http://localhost:5173/upload-link-sent",
-      cancel_url: "http://localhost:5173/payment"
+    const paymentIntent = await stripeInstance.paymentIntents.create({
+      amount: 1999, // $19.99 in cents
+      currency: "usd",
+      automatic_payment_methods: { enabled: true },
+      metadata: { propertyId },
     })
 
-    res.json({ url: session.url })
+    return res.json({ clientSecret: paymentIntent.client_secret })
   } catch (error) {
-    console.error("Stripe error:", error)
-    res.status(500).json({ message: "Payment failed" })
+    console.error("Stripe PaymentIntent error:", error)
+    return res.status(500).json({ message: "Payment intent creation failed" })
   }
 }

@@ -7,10 +7,20 @@ const propertySchema = new mongoose.Schema(
       ref: "User",
       required: true
     },
-    address: { 
-        type: String, 
-        required: true 
-    }
+    address: {
+      type: String,
+      required: true
+    },
+    status: {
+      type: String,
+      enum: ["pending", "paid", "failed"],
+      default: "pending",
+    },
+    uploadToken: {
+      type: String,
+      unique: true,
+      sparse: true,
+    },
   },
   { timestamps: true }
 )

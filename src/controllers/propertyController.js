@@ -30,6 +30,63 @@ export const createProperty = async (req, res) => {
 }
 
 
+
+// GET upload Link => get /api/property/:propertyId/upload-link
+export const getUploadLink = async (req, res) => {
+  try {
+    const { propertyId } = req.params
+
+    const property = await Property.findById(propertyId)
+    if (!property) {
+      return res.status(404).json({ message: "Property not found" })
+    }
+
+    if (property.status !== "paid") {
+      return res.status(400).json({ message: "Payment not completed for this property" })
+    }
+
+    if (!property.uploadToken) {
+      return res
+        .status(400)
+        .json({ message: "Upload link not yet generated. Please try again later." })
+    }
+
+    return res.json({ uploadToken: property.uploadToken })
+  } catch (error) {
+    console.error("Get upload link error:", error)
+    return res.status(500).json({ message: "Server error" })
+  }
+}
+
+// GET property by upload token => get /api/property/by-upload-token/:token
+export const getPropertyByUploadToken = async (req, res) => {
+  try {
+    const { token } = req.params
+
+    const property = await Property.findOne({ uploadToken: token }).populate("userId")
+    if (!property) {
+      return res.status(404).json({ message: "Invalid or expired upload link" })
+    }
+
+    if (property.status !== "paid") {
+      return res.status(400).json({ message: "Payment not completed for this property" })
+    }
+
+    return res.json({
+      address: property.address,
+      status: property.status,
+      user: {
+        name: property.userId?.name,
+        email: property.userId?.email,
+        phoneNo: property.userId?.phoneNo,
+      },
+    })
+  } catch (error) {
+    console.error("Get property by upload token error:", error)
+    return res.status(500).json({ message: "Server error" })
+  }
+}
+
 // get details => get /api/property/get-details
 export const getDetails = async (req, res) => {
     const user = await User.findById(req?.user?.id);
@@ -41,3 +98,4 @@ export const getDetails = async (req, res) => {
         property
     });
 }
+

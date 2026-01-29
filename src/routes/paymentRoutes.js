@@ -1,8 +1,8 @@
 import express from "express"
-import { createCheckoutSession } from "../controllers/paymentController.js"
+import { createPaymentIntent } from "../controllers/paymentController.js"
 
 const router = express.Router()
 
-router.post("/checkout", createCheckoutSession)
+router.post("/create-intent", createPaymentIntent)
 
 export default router
