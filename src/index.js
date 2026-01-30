@@ -17,12 +17,20 @@ const PORT = process.env.PORT || 8000;
 const app = express();
 
 
-app.use("/api/webhooks", webhookRoutes)
+
 
 app.use(cors({
-origin: ["http://localhost:5173" , `${process.env.CLIENT_URL}`],
-    credentials: true,
+  origin: [
+    "http://localhost:5173",
+    "https://list-green-light-theta.vercel.app",
+     process.env.CLIENT_URL
+  ].filter(Boolean), // Remove undefined values
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
+
+app.use("/api/webhooks", webhookRoutes)
 
 app.use(express.json())
 
