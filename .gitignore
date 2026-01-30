@@ -31,3 +31,4 @@ Thumbs.db
 # Database files
 *.sqlite3
 *.db
+.vercel
