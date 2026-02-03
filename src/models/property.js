@@ -23,11 +23,11 @@ const propertySchema = new mongoose.Schema(
     },
     photos: [
       {
-        url: { 
-          type: String, 
-          required: true 
+        url: {
+          type: String,
+          required: true
         },
-        publicId: { 
+        publicId: {
           type: String,
           required: true
         },
@@ -38,6 +38,22 @@ const propertySchema = new mongoose.Schema(
         },
       },
     ],
+    analysisStatus: {
+      type: String,
+      enum: ["pending", "analyzing", "completed", "failed"],
+      default: "pending",
+    },
+    analysisResults: [
+      {
+        roomType: { type: String, required: true },
+        roomName: { type: String, required: true },
+        status: { type: String, enum: ["PASS", "NEEDS_WORK"], required: true },
+        verdict: { type: String },
+        narrative: { type: String },
+        checklist: [{ type: String }],
+      },
+    ],
+
   },
   { timestamps: true }
 )

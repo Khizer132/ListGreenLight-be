@@ -7,30 +7,30 @@ import cloudinary from "../config/cloudinary.js"
 
 // create property => post /api/property/create-property
 export const createProperty = async (req, res) => {
-    try {
-        const { name, email, phoneNo, address } = req.body;
+  try {
+    const { name, email, phoneNo, address } = req.body;
 
-        if (!name || !email || !phoneNo || !address) {
-            return res.status(400).json({ message: "Missing required fields" })
-        }
-
-        let user = await User.findOne({ email })
-
-        if (!user) {
-            user = await User.create({ name, email, phoneNo })
-        }
-
-        const property = await Property.create({
-            userId: user._id,
-            address
-        })
-
-        res.status(201).json({ propertyId: property._id })
-
-    } catch (error) {
-        console.error("Create property error:", error)
-        res.status(500).json({ message: "Server error" })
+    if (!name || !email || !phoneNo || !address) {
+      return res.status(400).json({ message: "Missing required fields" })
     }
+
+    let user = await User.findOne({ email })
+
+    if (!user) {
+      user = await User.create({ name, email, phoneNo })
+    }
+
+    const property = await Property.create({
+      userId: user._id,
+      address
+    })
+
+    res.status(201).json({ propertyId: property._id })
+
+  } catch (error) {
+    console.error("Create property error:", error)
+    res.status(500).json({ message: "Server error" })
+  }
 }
 
 
@@ -131,6 +131,8 @@ export const getPropertyByUploadToken = async (req, res) => {
       address: property.address,
       status: property.status,
       photos: property.photos || [],
+      analysisStatus: property.analysisStatus || "pending",
+      analysisResults: property.analysisResults || [],
       user: {
         name: property.userId?.name,
         email: property.userId?.email,
@@ -145,14 +147,14 @@ export const getPropertyByUploadToken = async (req, res) => {
 
 // get details => get /api/property/get-details
 export const getDetails = async (req, res) => {
-    const user = await User.findById(req?.user?.id);
-    const property = await Property.findById(req?.property?.id);
+  const user = await User.findById(req?.user?.id);
+  const property = await Property.findById(req?.property?.id);
 
-    res.status(200).json({
-        success: true,
-        user,
-        property
-    });
+  res.status(200).json({
+    success: true,
+    user,
+    property
+  });
 }
 
 

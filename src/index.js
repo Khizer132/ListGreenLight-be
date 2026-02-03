@@ -16,15 +16,12 @@ const PORT = process.env.PORT || 8000;
 
 const app = express();
 
-
-
-
 app.use(cors({
   origin: [
     "http://localhost:5173",
     "https://list-green-light-theta.vercel.app",
      process.env.CLIENT_URL
-  ].filter(Boolean), // Remove undefined values
+  ].filter(Boolean),
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
