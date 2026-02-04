@@ -53,7 +53,15 @@ const propertySchema = new mongoose.Schema(
         checklist: [{ type: String }],
       },
     ],
-
+    analysisCount: {
+      type: Number,
+      default: 0,
+    },
+    analysisMode:{
+      type: String,
+      enum: ["strict", "lenient"],
+      default: "strict",
+    }
   },
   { timestamps: true }
 )

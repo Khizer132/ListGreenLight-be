@@ -191,10 +191,27 @@ export const uploadPhoto = async (req, res) => {
       return res.status(400).json({ message: "Payment not completed" })
     }
 
+    // delete previous photo
     if (!Array.isArray(property.photos)) {
       property.photos = []
     }
-    property.photos = property.photos.filter((p) => p.roomType !== roomType)
+    property.photos = property.photos.filter(
+      (p) => p.roomType !== roomType
+    )
+
+    // delete previous analysis
+    if(!Array.isArray(property.analysisResults)) {
+      property.analysisResults = []
+    }
+    property.analysisResults = property.analysisResults.filter(
+      (p) => p.roomType !== roomType
+    )
+
+    // reset analysis status
+    if (property.analysisStatus !== "analyzing") {
+      property.analysisStatus = "pending"
+    }
+
     await property.save()
 
     const result = await new Promise((resolve, reject) => {

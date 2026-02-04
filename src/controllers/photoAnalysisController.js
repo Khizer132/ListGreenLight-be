@@ -40,6 +40,19 @@ You MUST respond with valid JSON only, no markdown or extra text. Use this exact
 - If the room is PERFECT: { "roomType": "<same as roomType passed below>", "roomName": "<Room Name>", "status": "PASS", "verdict": "<Verdict text>" }
 Use roomType exactly as provided.`
 
+const LENIENT_PROMPT = `
+IV. SECOND-PASS MODE (IMPORTANT)
+You are re-checking after the user already made adjustments. Be convenient and not strict.
+- Prefer PASS whenever the room is clearly presentable.
+- Only return NEEDS_WORK if there are obvious, high-impact issues that would noticeably hurt listing photos.
+- Override the tie-breaker: if you are undecided, DEFAULT TO KEEP (assume it is styling).
+- If you return NEEDS_WORK, provide a very short checklist (MAX 3 items) and keep instructions minimal.
+- Do NOT nitpick tiny everyday items; 1-2 minor items are acceptable for PASS.
+Still output JSON only using the exact schema.`
+
+
+const MAX_ANALYSIS_RUNS_PER_PROPERTY = 2
+
 const ROOM_TYPES = ["kitchen", "living-room", "primary-bedroom", "primary-bathroom"]
 
 /**
@@ -92,6 +105,68 @@ function extractJsonFromText(text) {
   }
 }
 
+function normalizeResult(parsed, roomType) {
+  if (!parsed || typeof parsed !== "object") {
+    return {
+      roomType,
+      roomName: roomType,
+      status: "NEEDS_WORK",
+      narrative: "Analysis could not be completed.",
+      checklist: [],
+    }
+  }
+
+  const out = { ...parsed }
+  if (!out.roomType) out.roomType = roomType
+  if (!out.roomName) out.roomName = roomType
+  if (!out.status) out.status = "NEEDS_WORK"
+
+  if (out.status === "NEEDS_WORK") {
+    if (!Array.isArray(out.checklist)) out.checklist = []
+    if (typeof out.narrative !== "string") out.narrative = ""
+    delete out.verdict
+  } else if (out.status === "PASS") {
+    if (typeof out.verdict !== "string") out.verdict = "This room looks ready for listing photos."
+    delete out.narrative
+    delete out.checklist
+  }
+
+  return out
+}
+
+function applyLenientPolicy(result, roomType) {
+  const r = normalizeResult(result, roomType)
+
+  if (r.status !== "NEEDS_WORK") return r
+
+  const checklist = Array.isArray(r.checklist) ? r.checklist.filter(Boolean) : []
+  const count = checklist.length
+
+  // If it's only 0–2 minor items, fast-pass to PASS
+  if (count <= 2) {
+    return {
+      roomType: r.roomType,
+      roomName: r.roomName,
+      status: "PASS",
+      verdict:
+        count === 0
+          ? "PASS / NO ACTION NEEDED. This room looks presentable and ready for listing photos."
+          : `PASS / READY. This room is in great shape for listing photos. Optional quick tidy: ${checklist.join("; ")}.`,
+    }
+  }
+
+  return {
+    roomType: r.roomType,
+    roomName: r.roomName,
+    status: "NEEDS_WORK",
+    narrative:
+      typeof r.narrative === "string" && r.narrative.trim()
+        ? r.narrative
+        : "A couple quick tweaks will make this photo-ready.",
+    checklist: checklist.slice(0, 3),
+  }
+}
+
 export const analyzePhotos = async (req, res) => {
   try {
     const { token } = req.body
@@ -114,26 +189,49 @@ export const analyzePhotos = async (req, res) => {
       return res.status(500).json({ message: "Gemini API key not configured" })
     }
 
-    const genAI = new GoogleGenerativeAI(apiKey)
+    const previousRuns = property.analysisCount || 0
+    if (previousRuns >= MAX_ANALYSIS_RUNS_PER_PROPERTY) {
+      return res.status(429).json({
+        message:
+          "Free analysis limit reached for this property. To stay within the free Gemini tier, we only run the AI up to 2 times per property.",
+        analysisStatus: property.analysisStatus || "completed",
+        analysisResults: property.analysisResults || [],
+        analysisCount: previousRuns,
+        analysisMode: property.analysisMode || "lenient",
+      })
+    }
+
+    const nextRun = previousRuns + 1
+    const analysisMode = nextRun >= 2 ? "lenient" : "strict"
+    property.analysisCount = nextRun
+    property.analysisMode = analysisMode
+
     property.analysisStatus = "analyzing"
     property.analysisResults = []
     await property.save()
 
+    const genAI = new GoogleGenerativeAI(apiKey)
+
     const delayMs = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
-    const RETRY_DELAY_MS = 60000 // wait 1 min on rate limit, then retry
 
     for (let i = 0; i < photos.length; i++) {
+      // small spacing between rooms so we don't burst too fast
       if (i > 0) {
-        await delayMs(2000)
+        await delayMs(3000)
       }
 
       const photo = photos[i]
       const roomType = photo.roomType
       const imageUrl = photo.url
 
+      const systemInstruction =
+        SYSTEM_PROMPT +
+        (analysisMode === "lenient" ? LENIENT_PROMPT : "") +
+        `\n\nCurrent room being analyzed: roomType = "${roomType}". Respond with JSON only.`
+
       const model = genAI.getGenerativeModel({
         model: "gemini-2.5-flash-lite",
-        systemInstruction: SYSTEM_PROMPT + `\n\nCurrent room being analyzed: roomType = "${roomType}". Respond with JSON only.`,
+        systemInstruction,
       })
 
       const imagePart = {
@@ -144,47 +242,72 @@ export const analyzePhotos = async (req, res) => {
       }
 
       let parsed = null
-      for (let attempt = 1; attempt <= 2; attempt++) {
-        try {
-          const result = await model.generateContent([
-            { text: "Analyze this room photo and respond with the JSON object only (no markdown, no code block)." },
-            { inlineData: imagePart.inlineData },
-          ])
-          const response = result.response
-          const text = response.text()
-          parsed = extractJsonFromText(text)
-          if (!parsed) {
-            console.warn(`[${roomType}] Raw response (parse failed):`, text?.slice(0, 500))
-            parsed = { roomType, roomName: roomType, status: "NEEDS_WORK", narrative: "Analysis could not be parsed.", checklist: [] }
-          }
-          break
-        } catch (err) {
-          const is429 = err?.status === 429
-          let retryDelayMs = RETRY_DELAY_MS
-          const details = err?.errorDetails || []
-          const retryInfo = details.find((d) => d && d.retryDelay != null)
-          if (retryInfo?.retryDelay != null) {
-            const v = retryInfo.retryDelay
-            const parsedDelay = typeof v === "number" ? v * 1000 : parseInt(String(v).replace(/s$/i, ""), 10) * 1000
-            if (parsedDelay > 0) retryDelayMs = parsedDelay
-          }
-          retryDelayMs = Math.max(retryDelayMs, 60000)
-          if (is429 && attempt < 2) {
-            console.log(`Rate limited; waiting ${Math.round(retryDelayMs / 1000)}s before retry for room ${roomType}`)
-            await delayMs(retryDelayMs)
-          } else {
-            throw err
+
+      try {
+        const result = await model.generateContent([
+          {
+            text:
+              analysisMode === "lenient"
+                ? "This is a SECOND PASS after the user adjusted the room. Be lenient and convenient. Respond with the JSON object only (no markdown, no code block)."
+                : "Analyze this room photo and respond with the JSON object only (no markdown, no code block).",
+          },
+          { inlineData: imagePart.inlineData },
+        ])
+        const response = result.response
+        const text = response.text()
+        parsed = extractJsonFromText(text)
+
+        if (!parsed) {
+          console.warn(`[${roomType}] Raw response (parse failed):`, text?.slice(0, 500))
+          parsed = {
+            roomType,
+            roomName: roomType,
+            status: "NEEDS_WORK",
+            narrative: "Analysis could not be parsed.",
+            checklist: [],
           }
         }
+      } catch (err) {
+        const is429 =
+          err?.status === 429 ||
+          (typeof err?.message === "string" &&
+            (err.message.includes("429") || err.message.toLowerCase().includes("quota")))
+
+        if (is429) {
+          console.error(`Gemini rate limit/quota hit on room ${roomType}:`, err)
+          property.analysisStatus = "failed"
+          await property.save()
+          return res.status(429).json({
+            message:
+              "AI analysis limit has been reached for now (Gemini free tier). Please wait a while and try again later.",
+            code: "AI_RATE_LIMIT",
+          })
+        }
+
+        // Other unexpected errors still go to the outer catch
+        throw err
       }
 
       if (!parsed) {
-        parsed = { roomType, roomName: roomType, status: "NEEDS_WORK", narrative: "Analysis could not be completed.", checklist: [] }
+        parsed = {
+          roomType,
+          roomName: roomType,
+          status: "NEEDS_WORK",
+          narrative: "Analysis could not be completed.",
+          checklist: [],
+        }
       }
-      if (!parsed.roomType) parsed.roomType = roomType
-      if (!parsed.roomName) parsed.roomName = roomType
-      if (!parsed.status) parsed.status = "NEEDS_WORK"
-      property.analysisResults.push(parsed)
+
+      const finalResult =
+        analysisMode === "lenient"
+          ? applyLenientPolicy(parsed, roomType)
+          : normalizeResult(parsed, roomType)
+
+      // ensure only one result per roomType
+      property.analysisResults = property.analysisResults.filter(
+        (r) => r.roomType !== roomType
+      )
+      property.analysisResults.push(finalResult)
       await property.save()
     }
 
@@ -194,6 +317,8 @@ export const analyzePhotos = async (req, res) => {
     return res.json({
       analysisStatus: "completed",
       analysisResults: property.analysisResults,
+      analysisCount: property.analysisCount,
+      analysisMode: property.analysisMode,
     })
   } catch (error) {
     console.error("Analyze photos error:", error)
@@ -202,13 +327,25 @@ export const analyzePhotos = async (req, res) => {
       property.analysisStatus = "failed"
       await property.save()
     }
+
+    // If this wasn't handled as a 429 above, return generic 500
     return res.status(500).json({ message: "Analysis failed", error: error.message })
   }
 }
 
+// fetch image as base64
 async function fetchImageAsBase64(url) {
   const res = await fetch(url)
   const buf = await res.arrayBuffer()
   const b64 = Buffer.from(buf).toString("base64")
   return b64
 }
+
+
+// const totalRooms = photos.length
+
+// // If we're before any analysis or after a failure, show 0/total
+// const analyzedCount =
+//   analysisStatus === "pending" || analysisStatus === "failed"
+//     ? 0
+//     : analysisResults.length
