@@ -50,32 +50,48 @@ You are re-checking after the user already made adjustments. Be convenient and n
 - Do NOT nitpick tiny everyday items; 1-2 minor items are acceptable for PASS.
 Still output JSON only using the exact schema.`
 
-
 const MAX_ANALYSIS_RUNS_PER_PROPERTY = 2
 
-const ROOM_TYPES = ["kitchen", "living-room", "primary-bedroom", "primary-bathroom"]
-
 /**
- * Extract a JSON object from model output (handles markdown, extra text, code blocks).
+ * Extract JSON (object or array) from model output
  */
 function extractJsonFromText(text) {
   if (!text || typeof text !== "string") return null
   let cleaned = text.trim()
 
+  // Remove markdown code blocks
   const codeBlockMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/)
   if (codeBlockMatch) {
     cleaned = codeBlockMatch[1].trim()
   }
 
-  cleaned = cleaned.replace(/^[\s\S]*?(\{[\s\S]*\})[\s\S]*$/, "$1")
+  // Try to find JSON array first
+  const arrayMatch = cleaned.match(/\[[\s\S]*\]/)
+  if (arrayMatch) {
+    try {
+      const parsed = JSON.parse(arrayMatch[0])
+      if (Array.isArray(parsed)) {
+        return parsed
+      }
+    } catch (e) {
+      console.log("Array parse failed, trying cleanup...")
+      const fixed = arrayMatch[0].replace(/,\s*([}\]])/g, "$1")
+      try {
+        return JSON.parse(fixed)
+      } catch (e2) {
+        // Continue to object parsing
+      }
+    }
+  }
 
+  // Try to find JSON object
   let depth = 0
   let start = -1
   for (let i = 0; i < cleaned.length; i++) {
-    if (cleaned[i] === "{") {
+    if (cleaned[i] === "{" || cleaned[i] === "[") {
       if (depth === 0) start = i
       depth++
-    } else if (cleaned[i] === "}") {
+    } else if (cleaned[i] === "}" || cleaned[i] === "]") {
       depth--
       if (depth === 0 && start !== -1) {
         const jsonStr = cleaned.slice(start, i + 1)
@@ -86,22 +102,19 @@ function extractJsonFromText(text) {
           try {
             return JSON.parse(fixed)
           } catch (e2) {
-            return null
+            continue
           }
         }
       }
     }
   }
 
+  // Last resort: try parsing the whole cleaned string
   try {
     return JSON.parse(cleaned)
   } catch (e) {
-    const fixed = cleaned.replace(/,\s*([}\]])/g, "$1")
-    try {
-      return JSON.parse(fixed)
-    } catch (e2) {
-      return null
-    }
+    console.error("Failed to parse JSON:", cleaned.slice(0, 300))
+    return null
   }
 }
 
@@ -142,7 +155,6 @@ function applyLenientPolicy(result, roomType) {
   const checklist = Array.isArray(r.checklist) ? r.checklist.filter(Boolean) : []
   const count = checklist.length
 
-  // If it's only 0–2 minor items, fast-pass to PASS
   if (count <= 2) {
     return {
       roomType: r.roomType,
@@ -174,7 +186,7 @@ export const analyzePhotos = async (req, res) => {
       return res.status(400).json({ message: "token is required" })
     }
 
-    const property = await Property.findOne({ uploadToken: token })
+    let property = await Property.findOne({ uploadToken: token })
     if (!property) {
       return res.status(404).json({ message: "Invalid or expired upload link" })
     }
@@ -189,6 +201,17 @@ export const analyzePhotos = async (req, res) => {
       return res.status(500).json({ message: "Gemini API key not configured" })
     }
 
+    if (property.analysisStatus === "analyzing") {
+      console.log("[BATCH] Analysis already in progress, skipping duplicate request")
+      return res.json({
+        analysisStatus: "analyzing",
+        analysisResults: property.analysisResults || [],
+        analysisCount: property.analysisCount || 0,
+        analysisMode: property.analysisMode || "strict",
+        message: "Analysis in progress",
+      })
+    }
+
     const previousRuns = property.analysisCount || 0
     if (previousRuns >= MAX_ANALYSIS_RUNS_PER_PROPERTY) {
       return res.status(429).json({
@@ -201,16 +224,6 @@ export const analyzePhotos = async (req, res) => {
       })
     }
 
-    // const nextRun = previousRuns + 1
-    // const analysisMode = nextRun >= 2 ? "lenient" : "strict"
-    // property.analysisCount = nextRun
-    // property.analysisMode = analysisMode
-
-    // property.analysisStatus = "analyzing"
-    // property.analysisResults = []
-    // await property.save()
-
-
     const existingResults = Array.isArray(property.analysisResults) ? property.analysisResults : []
     const existingRoomTypes = new Set(existingResults.map((r) => r.roomType))
 
@@ -219,7 +232,6 @@ export const analyzePhotos = async (req, res) => {
         ? photos
         : photos.filter((p) => !existingRoomTypes.has(p.roomType))
 
-    
     if (previousRuns > 0 && photosToAnalyze.length === 0) {
       return res.json({
         analysisStatus: property.analysisStatus || "completed",
@@ -233,148 +245,210 @@ export const analyzePhotos = async (req, res) => {
     const nextRun = previousRuns + 1
     const analysisMode = nextRun >= 2 ? "lenient" : "strict"
 
-    property.analysisCount = nextRun
-    property.analysisMode = analysisMode
-    property.analysisStatus = "analyzing"
+    
+    const lockedProperty = await Property.findOneAndUpdate(
+      {
+        uploadToken: token,
+        analysisStatus: { $ne: "analyzing" },
+      },
+      {
+        analysisMode: analysisMode,
+        analysisStatus: "analyzing",
+      },
+      { new: true }
+    )
 
-    await property.save()
+    if (!lockedProperty) {
+      console.log("[BATCH] Another request already locked the property, skipping")
+      return res.json({
+        analysisStatus: "analyzing",
+        analysisResults: property.analysisResults || [],
+        analysisCount: property.analysisCount || 0,
+        analysisMode: analysisMode,
+        message: "Analysis in progress",
+      })
+    }
 
     const genAI = new GoogleGenerativeAI(apiKey)
 
-    const delayMs = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+    console.log(`[BATCH] Starting analysis for ${photosToAnalyze.length} rooms (mode: ${analysisMode})`)
 
-    for (let i = 0; i < photosToAnalyze.length; i++) {
-      // small spacing between rooms so we don't burst too fast
-      if (i > 0) {
-        await delayMs(3000)
-      }
-
-      const photo = photosToAnalyze[i]
-      const roomType = photo.roomType
-      const imageUrl = photo.url
-
-      const systemInstruction =
-        SYSTEM_PROMPT +
-        (analysisMode === "lenient" ? LENIENT_PROMPT : "") +
-        `\n\nCurrent room being analyzed: roomType = "${roomType}". Respond with JSON only.`
-
-      const model = genAI.getGenerativeModel({
-        model: "gemini-2.5-flash-lite",
-        systemInstruction,
-      })
-
-      const imagePart = {
+    const imageParts = await Promise.all(
+      photosToAnalyze.map(async (photo) => ({
         inlineData: {
-          data: await fetchImageAsBase64(imageUrl),
+          data: await fetchImageAsBase64(photo.url),
           mimeType: "image/jpeg",
         },
-      }
+        roomType: photo.roomType,
+      }))
+    )
 
-      let parsed = null
+    console.log(`[BATCH] All ${imageParts.length} images loaded`)
 
-      try {
-        const result = await model.generateContent([
-          {
-            text:
-              analysisMode === "lenient"
-                ? "This is a SECOND PASS after the user adjusted the room. Be lenient and convenient. Respond with the JSON object only (no markdown, no code block)."
-                : "Analyze this room photo and respond with the JSON object only (no markdown, no code block).",
-          },
-          { inlineData: imagePart.inlineData },
-        ])
-        const response = result.response
-        const text = response.text()
-        parsed = extractJsonFromText(text)
+    const roomsInfo = photosToAnalyze.map((p, idx) => `Image ${idx + 1}: ${p.roomType}`).join("\n")
 
-        if (!parsed) {
-          console.warn(`[${roomType}] Raw response (parse failed):`, text?.slice(0, 500))
-          parsed = {
-            roomType,
-            roomName: roomType,
-            status: "NEEDS_WORK",
-            narrative: "Analysis could not be parsed.",
-            checklist: [],
-          }
-        }
-      } catch (err) {
-        const is429 =
-          err?.status === 429 ||
-          (typeof err?.message === "string" &&
-            (err.message.includes("429") || err.message.toLowerCase().includes("quota")))
+    const batchSystemPrompt = `${SYSTEM_PROMPT}${
+      analysisMode === "lenient" ? LENIENT_PROMPT : ""
+    }
 
-        if (is429) {
-          console.error(`Gemini rate limit/quota hit on room ${roomType}:`, err)
-          property.analysisStatus = "failed"
-          await property.save()
-          return res.status(429).json({
-            message:
-              "AI analysis limit has been reached for now (Gemini free tier). Please wait a while and try again later.",
-            code: "AI_RATE_LIMIT",
-          })
-        }
+BATCH MODE - CRITICAL INSTRUCTIONS:
+You are analyzing ${photosToAnalyze.length} room photos in ONE request.
+${roomsInfo}
 
-        // Other unexpected errors still go to the outer catch
-        throw err
-      }
+You MUST return a JSON array with exactly ${photosToAnalyze.length} objects (one per room).
+
+Expected format:
+[
+  {
+    "roomType": "kitchen",
+    "roomName": "Kitchen",
+    "status": "PASS",
+    "verdict": "This room is perfectly staged..."
+  },
+  {
+    "roomType": "living-room",
+    "roomName": "Living Room", 
+    "status": "NEEDS_WORK",
+    "narrative": "...",
+    "checklist": ["...", "..."]
+  }
+]
+
+CRITICAL: 
+- Return ONLY the JSON array
+- NO markdown code blocks
+- NO extra text before or after
+- Each object must have "roomType" matching one of: ${photosToAnalyze.map((p) => p.roomType).join(", ")}`
+
+    const model = genAI.getGenerativeModel({
+      model: "gemini-2.5-flash-lite",
+      systemInstruction: batchSystemPrompt,
+    })
+
+    let parsedResults = []
+
+    try {
+      const contentParts = [
+        {
+          text:
+            analysisMode === "lenient"
+              ? `SECOND PASS - Be lenient. Analyze all ${photosToAnalyze.length} rooms. Return JSON array only.`
+              : `Analyze all ${photosToAnalyze.length} rooms. Return JSON array only.`,
+        },
+        ...imageParts.map((img) => ({ inlineData: img.inlineData })),
+      ]
+
+      console.log("[BATCH] Sending request to Gemini...")
+      const result = await model.generateContent(contentParts)
+      const response = result.response
+      const text = response.text()
+
+      console.log("[BATCH] Response received, length:", text.length)
+      console.log("[BATCH] Response preview:", text.slice(0, 400))
+
+      const parsed = extractJsonFromText(text)
 
       if (!parsed) {
-        parsed = {
-          roomType,
-          roomName: roomType,
-          status: "NEEDS_WORK",
-          narrative: "Analysis could not be completed.",
-          checklist: [],
-        }
+        console.error("[BATCH] Failed to parse response")
+        throw new Error("Failed to parse AI response")
       }
+
+      if (Array.isArray(parsed)) {
+        parsedResults = parsed
+        console.log(`[BATCH] Successfully parsed array with ${parsedResults.length} items`)
+      } else if (parsed && typeof parsed === "object") {
+        console.log("[BATCH] Got single object, wrapping in array")
+        parsedResults = [parsed]
+      } else {
+        console.error("[BATCH] Unexpected parsed type:", typeof parsed)
+        throw new Error("Unexpected response format")
+      }
+
+      if (parsedResults.length !== photosToAnalyze.length) {
+        console.warn(
+          `[BATCH] Expected ${photosToAnalyze.length} results, got ${parsedResults.length}`
+        )
+      }
+    } catch (err) {
+      const is429 =
+        err?.status === 429 ||
+        (typeof err?.message === "string" &&
+          (err.message.includes("429") || err.message.toLowerCase().includes("quota")))
+
+      if (is429) {
+        console.error("[BATCH] Gemini rate limit hit:", err)
+        await Property.findByIdAndUpdate(lockedProperty._id, { analysisStatus: "failed" })
+        return res.status(429).json({
+          message:
+            "AI analysis limit has been reached for now (Gemini free tier). Please wait a while and try again later.",
+          code: "AI_RATE_LIMIT",
+        })
+      }
+
+      console.error("[BATCH] Analysis error:", err)
+      throw err
+    }
+
+    const newResults = [...lockedProperty.analysisResults]
+
+    let processedCount = 0
+    for (const parsed of parsedResults) {
+      const roomType = parsed.roomType
+
+      if (!roomType) {
+        console.warn("[BATCH] Skipping result with no roomType:", parsed)
+        continue
+      }
+
+      console.log(`[BATCH] Processing result for room: ${roomType}`)
 
       const finalResult =
         analysisMode === "lenient"
           ? applyLenientPolicy(parsed, roomType)
           : normalizeResult(parsed, roomType)
 
-      // ensure only one result per roomType
-      property.analysisResults = property.analysisResults.filter(
-        (r) => r.roomType !== roomType
-      )
-      property.analysisResults.push(finalResult)
-      await property.save()
+      const filteredResults = newResults.filter((r) => r.roomType !== roomType)
+      filteredResults.push(finalResult)
+      newResults.length = 0
+      newResults.push(...filteredResults)
+      processedCount++
     }
 
-    property.analysisStatus = "completed"
-    await property.save()
+    console.log(`[BATCH] Processed ${processedCount} results successfully`)
+
+    const updatedProperty = await Property.findByIdAndUpdate(
+      lockedProperty._id,
+      {
+        analysisResults: newResults,
+        analysisStatus: "completed",
+        analysisCount: nextRun,
+      },
+      { new: true } 
+    )
+
+    console.log("[BATCH] Analysis complete, saved to database")
 
     return res.json({
       analysisStatus: "completed",
-      analysisResults: property.analysisResults,
-      analysisCount: property.analysisCount,
-      analysisMode: property.analysisMode,
+      analysisResults: updatedProperty.analysisResults,
+      analysisCount: updatedProperty.analysisCount,
+      analysisMode: analysisMode,
     })
   } catch (error) {
     console.error("Analyze photos error:", error)
-    const property = await Property.findOne({ uploadToken: req.body?.token }).catch(() => null)
-    if (property) {
-      property.analysisStatus = "failed"
-      await property.save()
-    }
 
-    // If this wasn't handled as a 429 above, return generic 500
+    await Property.findOneAndUpdate(
+      { uploadToken: req.body?.token },
+      { analysisStatus: "failed" }
+    ).catch((err) => console.error("Failed to update status to failed:", err))
+
     return res.status(500).json({ message: "Analysis failed", error: error.message })
   }
 }
 
-// fetch image as base64
 async function fetchImageAsBase64(url) {
   const res = await fetch(url)
   const buf = await res.arrayBuffer()
   const b64 = Buffer.from(buf).toString("base64")
   return b64
 }
-
-
-// const totalRooms = photos.length
-
-// // If we're before any analysis or after a failure, show 0/total
-// const analyzedCount =
-//   analysisStatus === "pending" || analysisStatus === "failed"
-//     ? 0
-//     : analysisResults.length
