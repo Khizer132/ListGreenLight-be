@@ -4,6 +4,7 @@ import Payment from "../models/payment.js"
 import Stripe from "stripe"
 import crypto from "crypto"
 import cloudinary from "../config/cloudinary.js"
+import { sendUploadLinkEmail } from "../utils/sendEmail.js"
 
 // create property => post /api/property/create-property
 export const createProperty = async (req, res) => {
@@ -106,7 +107,28 @@ export const confirmPaymentAndGetUploadLink = async (req, res) => {
       { upsert: true, new: true }
     )
 
+    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173"
+    const uploadPhotoLink = `${frontendUrl}/upload-photos/${property.uploadToken}`
+
+    try {
+      const propertyWithUser = await Property.findById(propertyId).populate("userId")
+      const user = propertyWithUser?.userId
+      if (user?.email) {
+        await sendUploadLinkEmail({
+          to: user.email,
+          userName: user.name,
+          userEmail: user.email,
+          userPhone: user.phoneNo,
+          propertyAddress: propertyWithUser?.address ?? property?.address ?? "—",
+          uploadPhotoLink,
+        })
+      }
+    } catch (emailErr) {
+      console.error("Send upload link email error:", emailErr)
+    }
+
     return res.json({ uploadToken: property.uploadToken })
+
   } catch (error) {
     console.error("Confirm payment and get upload link error:", error)
     return res.status(500).json({ message: "Server error" })
@@ -200,7 +222,7 @@ export const uploadPhoto = async (req, res) => {
     )
 
     // delete previous analysis
-    if(!Array.isArray(property.analysisResults)) {
+    if (!Array.isArray(property.analysisResults)) {
       property.analysisResults = []
     }
     property.analysisResults = property.analysisResults.filter(

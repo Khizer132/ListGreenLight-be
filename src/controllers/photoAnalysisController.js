@@ -201,26 +201,55 @@ export const analyzePhotos = async (req, res) => {
       })
     }
 
+    // const nextRun = previousRuns + 1
+    // const analysisMode = nextRun >= 2 ? "lenient" : "strict"
+    // property.analysisCount = nextRun
+    // property.analysisMode = analysisMode
+
+    // property.analysisStatus = "analyzing"
+    // property.analysisResults = []
+    // await property.save()
+
+
+    const existingResults = Array.isArray(property.analysisResults) ? property.analysisResults : []
+    const existingRoomTypes = new Set(existingResults.map((r) => r.roomType))
+
+    const photosToAnalyze =
+      previousRuns === 0
+        ? photos
+        : photos.filter((p) => !existingRoomTypes.has(p.roomType))
+
+    
+    if (previousRuns > 0 && photosToAnalyze.length === 0) {
+      return res.json({
+        analysisStatus: property.analysisStatus || "completed",
+        analysisResults: existingResults,
+        analysisCount: property.analysisCount || previousRuns,
+        analysisMode: property.analysisMode || (previousRuns >= 2 ? "lenient" : "strict"),
+        message: "No changed rooms to reanalyze.",
+      })
+    }
+
     const nextRun = previousRuns + 1
     const analysisMode = nextRun >= 2 ? "lenient" : "strict"
+
     property.analysisCount = nextRun
     property.analysisMode = analysisMode
-
     property.analysisStatus = "analyzing"
-    property.analysisResults = []
+
     await property.save()
 
     const genAI = new GoogleGenerativeAI(apiKey)
 
     const delayMs = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
-    for (let i = 0; i < photos.length; i++) {
+    for (let i = 0; i < photosToAnalyze.length; i++) {
       // small spacing between rooms so we don't burst too fast
       if (i > 0) {
         await delayMs(3000)
       }
 
-      const photo = photos[i]
+      const photo = photosToAnalyze[i]
       const roomType = photo.roomType
       const imageUrl = photo.url
 

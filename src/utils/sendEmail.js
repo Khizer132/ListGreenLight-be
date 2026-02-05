@@ -1,117 +1,108 @@
 import nodemailer from "nodemailer"
 
 const transporter = nodemailer.createTransport({
-    service: "gmail",
-    auth: {
-        user: process.env.EMAIL,
-        pass: process.env.PASSWORD,
-    },
+  service: "gmail",
+  auth: {
+    user: process.env.EMAIL,
+    pass: process.env.PASSWORD,
+  },
 })
 
+function getUploadLinkEmailHtml(options) {
+  const {
+    userName,
+    userEmail,
+    userPhone,
+    propertyAddress,
+    uploadPhotoLink,
+    year = new Date().getFullYear(),
+    websiteUrl = process.env.CLIENT_URL || "http://localhost:5173",
+  } = options
 
+  return `
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>List Green Light</title>
+  </head>
+  <body style="background:#f3f4f6; padding:40px 0; font-family: system-ui, sans-serif;">
+    <div style="max-width:32rem; margin:0 auto; background:#fff; border-radius:12px; box-shadow:0 4px 6px -1px rgba(0,0,0,0.1); overflow:hidden;">
+      <div style="border-bottom:2px solid #16a34a; padding:16px 24px; text-align:center;">
+        <span style="color:#16a34a; font-weight:600; font-size:18px;">
+          ⚡ ListGreenLight
+        </span>
+      </div>
+      <div style="padding:24px; color:#374151;">
+        <p style="font-size:14px; margin-bottom:16px;">
+          Hello <span style="font-weight:600;">${userName}</span>,
+        </p>
+        <p style="font-size:14px; line-height:1.5; margin-bottom:24px;">
+          Thanks for getting started with <strong>List Green Light</strong>.
+          To move forward, please upload photos of your property so we can
+          review and activate your listing.
+        </p>
+        <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px; padding:16px; margin-bottom:24px;">
+          <p style="font-size:14px; font-weight:500; color:#15803d; margin-bottom:8px;">
+            What happens next?
+          </p>
+          <ul style="font-size:14px; color:#15803d; margin:0; padding-left:20px;">
+            <li>✓ AI checks staging issues before your photographer arrives</li>
+            <li>✓ Faster approval with fewer reshoots</li>
+            <li>✓ Share instant checklists with sellers</li>
+          </ul>
+        </div>
+        <div style="background:#f9fafb; border:1px solid #e5e7eb; border-radius:8px; padding:16px; margin-bottom:24px; font-size:14px;">
+          <p style="margin:0 0 4px;"><strong>Name:</strong> ${userName}</p>
+          <p style="margin:0 0 4px;"><strong>Email:</strong> ${userEmail}</p>
+          <p style="margin:0 0 4px;"><strong>Phone:</strong> ${userPhone}</p>
+          <p style="margin:0;"><strong>Property Address:</strong> ${propertyAddress}</p>
+        </div>
+        <div style="text-align:center;">
+          <a
+            href="${uploadPhotoLink}"
+            style="display:inline-block; background:#16a34a; color:#fff; font-weight:600; font-size:14px; padding:12px 24px; border-radius:8px; text-decoration:none;"
+          >
+            Upload Property Photos
+          </a>
+          <p style="font-size:12px; color:#9ca3af; margin-top:12px;">
+            Secure upload · Takes less than 2 minutes
+          </p>
+        </div>
+      </div>
+      <div style="background:#f3f4f6; text-align:center; font-size:12px; color:#6b7280; padding:16px 24px;">
+        <p style="margin:0;">
+          Need help? Just reply to this email — we're here for you.
+        </p>
+        <p style="margin:4px 0 0;">
+          © ${year} ListGreenLight ·
+          <a href="${websiteUrl}" style="color:#16a34a; text-decoration:underline;">
+            Visit Website
+          </a>
+        </p>
+      </div>
+    </div>
+  </body>
+</html>
+  `.trim()
+}
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// <!DOCTYPE html>
-// <html lang="en">
-//   <head>
-//     <meta charset="UTF-8" />
-//     <title>List Green Light</title>
-
-//     <!-- Tailwind CDN (for preview / build step only) -->
-//     <script src="https://cdn.tailwindcss.com"></script>
-//   </head>
-
-//   <body class="bg-gray-100 py-10 font-sans">
-//     <div class="max-w-lg mx-auto bg-white rounded-xl shadow-md overflow-hidden">
-
-//       <!-- Header -->
-//       <div class="border-b border-green-600 px-6 py-4 flex items-center justify-center">
-//         <span class="text-green-600 font-semibold text-lg">
-//           ⚡ ListGreenLight
-//         </span>
-//       </div>
-
-//       <!-- Main Content -->
-//       <div class="px-6 py-6 text-gray-700">
-//         <p class="text-sm mb-4">
-//           Hello <span class="font-semibold">{{userName}}</span>,
-//         </p>
-
-//         <p class="text-sm leading-relaxed mb-6">
-//           Thanks for getting started with <strong>List Green Light</strong>.
-//           To move forward, please upload photos of your property so we can
-//           review and activate your listing.
-//         </p>
-
-//         <!-- Highlight Box (matches green theme) -->
-//         <div class="bg-green-50 border border-green-200 rounded-lg p-4 mb-6">
-//           <p class="text-sm font-medium text-green-700 mb-2">
-//             What happens next?
-//           </p>
-//           <ul class="text-sm text-green-700 space-y-1">
-//             <li>✓ AI checks staging issues before your photographer arrives</li>
-//             <li>✓ Faster approval with fewer reshoots</li>
-//             <li>✓ Share instant checklists with sellers</li>
-//           </ul>
-//         </div>
-
-//         <!-- User Info -->
-//         <div class="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-6 text-sm">
-//           <p><strong>Name:</strong> {{userName}}</p>
-//           <p><strong>Email:</strong> {{userEmail}}</p>
-//           <p><strong>Phone:</strong> {{userPhone}}</p>
-//           <p><strong>Property Address:</strong> {{propertyAddress}}</p>
-//         </div>
-
-//         <!-- CTA -->
-//         <div class="text-center">
-//           <a
-//             href="{{uploadPhotoLink}}"
-//             class="inline-block bg-green-600 hover:bg-green-700 text-white font-semibold text-sm px-6 py-3 rounded-lg transition"
-//           >
-//             Upload Property Photos
-//           </a>
-
-//           <p class="text-xs text-gray-400 mt-3">
-//             Secure upload · Takes less than 2 minutes
-//           </p>
-//         </div>
-//       </div>
-
-//       <!-- Footer -->
-//       <div class="bg-gray-100 text-center text-xs text-gray-500 px-6 py-4">
-//         <p>
-//           Need help? Just reply to this email — we’re here for you.
-//         </p>
-//         <p class="mt-1">
-//           © {{year}} ListGreenLight ·
-//           <a href="{{websiteUrl}}" class="text-green-600 underline">
-//             Visit Website
-//           </a>
-//         </p>
-//       </div>
-
-//     </div>
-//   </body>
-// </html>
+export async function sendUploadLinkEmail(options) {
+  const { to, userName, userEmail, userPhone, propertyAddress, uploadPhotoLink } = options
+  if (!to || !uploadPhotoLink) {
+    throw new Error("sendUploadLinkEmail: to and uploadPhotoLink are required")
+  }
+  const html = getUploadLinkEmailHtml({
+    userName: userName || "User",
+    userEmail: userEmail || to,
+    userPhone: userPhone || "—",
+    propertyAddress: propertyAddress || "—",
+    uploadPhotoLink,
+  })
+  await transporter.sendMail({
+    from: process.env.EMAIL,
+    to,
+    subject: "ListGreenLight – Upload your property photos",
+    html,
+  })
+}
