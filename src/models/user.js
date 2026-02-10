@@ -13,7 +13,7 @@ const userSchema = new mongoose.Schema({
     phoneNo: {
         type: String,
         required: [true, "Please enter your phone number"],
-    },  
+    },
 
 }, {timestamps: true}
 );
