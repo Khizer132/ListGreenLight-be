@@ -57,12 +57,14 @@ const propertySchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
-    analysisMode:{
+    analysisMode: {
       type: String,
       enum: ["strict", "lenient"],
       default: "strict",
-    }
+    },
   },
+
+
   { timestamps: true }
 )
 
