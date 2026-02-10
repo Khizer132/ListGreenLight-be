@@ -60,12 +60,6 @@ function getUploadLinkEmailHtml(options) {
           >
             Upload Property Photos
           </a>
-          <a
-            href="${uploadPhotoLink}"
-            style="font-size:12px; color:#9ca3af; margin-top:12px; text-decoration:none;"
-          >
-            ${uploadPhotoLink}
-          </a>
           <p style="font-size:12px; color:#9ca3af; margin-top:12px;">
             Secure upload · Takes less than 2 minutes
           </p>
@@ -90,7 +84,6 @@ function getUploadLinkEmailHtml(options) {
 
 
 // Approval Email
-
 function getApprovalEmailHtml(options) {
   const {
     userName,
