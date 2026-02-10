@@ -1,6 +1,6 @@
 import express from "express"
 import { uploadSingle } from "../middlewares/upload.js"
-import { createProperty, getDetails, getUploadLink, getPropertyByUploadToken, confirmPaymentAndGetUploadLink, uploadPhoto, sendApprovalEmailController } from "../controllers/propertyController.js"
+import { createProperty, getDetails, getUploadLink, getPropertyByUploadToken, confirmPaymentAndGetUploadLink, uploadPhoto, sendApprovalEmailController, sendFeedbackController } from "../controllers/propertyController.js"
 import { analyzePhotos } from "../controllers/photoAnalysisController.js"
 
 
@@ -14,6 +14,7 @@ router.route("/confirm-payment-and-upload-link").post(confirmPaymentAndGetUpload
 router.route("/upload-photo").post(uploadSingle, uploadPhoto);
 router.route("/analyze-photos").post(analyzePhotos);
 router.route("/send-approval-email").post(sendApprovalEmailController);
+router.route("/send-feedback").post(sendFeedbackController);
 
 
 export default router

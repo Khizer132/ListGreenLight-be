@@ -4,7 +4,7 @@ import Payment from "../models/payment.js"
 import Stripe from "stripe"
 import crypto from "crypto"
 import cloudinary from "../config/cloudinary.js"
-import { sendUploadLinkEmail, sendApprovalEmail } from "../utils/sendEmail.js"
+import { sendUploadLinkEmail, sendApprovalEmail, sendFeedbackEmail } from "../utils/sendEmail.js"
 
 // create property => post /api/property/create-property
 export const createProperty = async (req, res) => {
@@ -194,6 +194,39 @@ export const sendApprovalEmailController = async (req, res) => {
     return res.json({ message: "Approval email sent" })
   } catch (error) {
     console.error("Send approval email error:", error)
+    return res.status(500).json({ message: "Server error" })
+  }
+}
+
+
+export const sendFeedbackController = async (req, res) => {
+  try {
+    const { token, feedback } = req.body
+
+    if (!token) {
+      return res.status(400).json({ message: "token is required" })
+    }
+
+    const property = await Property.findOne({ uploadToken: token }).populate("userId")
+    if (!property) {
+      return res.status(404).json({ message: "Invalid or expired upload link" })
+    }
+
+    const user = property.userId
+    if (!user?.email) {
+      return res.status(400).json({ message: "User email not found for this property" })
+    }
+
+    await sendFeedbackEmail({
+      to: user.email,
+      userName: user.name,
+      propertyAddress: property.address,
+      feedback: feedback || "",
+    })
+
+    return res.json({ message: "Feedback email sent" })
+  } catch (error) {
+    console.error("Send feedback email error:", error)
     return res.status(500).json({ message: "Server error" })
   }
 }

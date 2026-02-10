@@ -8,6 +8,8 @@ const transporter = nodemailer.createTransport({
   },
 })
 
+
+// Upload Link Email
 function getUploadLinkEmailHtml(options) {
   const {
     userName,
@@ -86,6 +88,8 @@ function getUploadLinkEmailHtml(options) {
   `.trim()
 }
 
+
+// Approval Email
 
 function getApprovalEmailHtml(options) {
   const {
@@ -187,6 +191,86 @@ export async function sendApprovalEmail(options) {
     from: process.env.EMAIL,
     to,
     subject: "Property Approved – ListGreenLight",
+    html,
+  })
+}
+
+
+// Feedback Email
+
+function getFeedbackEmailHtml(options) {
+  const {
+    userName,
+    propertyAddress,
+    feedback,
+    year = new Date().getFullYear(),
+    websiteUrl = process.env.CLIENT_URL || "http://localhost:5173",
+  } = options
+
+  return `
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Minor Adjustments Feedback – ListGreenLight</title>
+  </head>
+  <body style="background:#f3f4f6; padding:40px 0; font-family: system-ui, sans-serif;">
+    <div style="max-width:36rem; margin:0 auto; background:#fff; border-radius:12px; box-shadow:0 4px 6px -1px rgba(0,0,0,0.1); overflow:hidden;">
+      <div style="background:#eab308; padding:24px; text-align:center; color:#fff;">
+        <div style="font-size:32px; line-height:1; margin-bottom:8px;">⚡</div>
+        <h1 style="font-size:22px; font-weight:700; margin:0;">Minor Adjustments Requested</h1>
+      </div>
+
+      <div style="padding:24px 24px 8px; color:#374151; font-size:14px; line-height:1.6;">
+        <p style="margin:0 0 12px;">
+          Hello <span style="font-weight:600;">${userName}</span>,
+        </p>
+        <p style="margin:0 0 16px;">
+          The realtor has requested minor adjustments for the property at
+          <span style="font-weight:600; color:#16a34a;">${propertyAddress}</span>.
+        </p>
+
+        <div style="background:#fefce8; border-left:4px solid #eab308; border-radius:8px; padding:16px 16px 16px 18px; margin:0 0 20px;">
+          <p style="margin:0 0 8px; font-weight:600; color:#713f12;">Feedback:</p>
+          <p style="margin:0; white-space:pre-wrap; color:#713f12;">${feedback || "—"}</p>
+        </div>
+
+        <p style="margin:0 0 16px; color:#4b5563;">
+          Please review and make the suggested adjustments. If you have questions, contact your realtor.
+        </p>
+      </div>
+
+      <div style="background:#f3f4f6; text-align:center; font-size:12px; color:#6b7280; padding:16px 24px;">
+        <p style="margin:0;">© ${year} ⚡ ListGreenLight.</p>
+        <p style="margin:4px 0 0;">
+          <a href="${websiteUrl}" style="color:#16a34a; text-decoration:underline;">Visit Website</a>
+        </p>
+      </div>
+    </div>
+  </body>
+</html>
+  `.trim()
+}
+
+export async function sendFeedbackEmail(options) {
+  const { to, userName, propertyAddress, feedback } = options
+
+  if (!to) {
+    throw new Error("sendFeedbackEmail: 'to' is required")
+  }
+
+  const html = getFeedbackEmailHtml({
+    userName: userName || "User",
+    propertyAddress: propertyAddress || "—",
+    feedback: feedback || "No feedback provided",
+    year: new Date().getFullYear(),
+    websiteUrl: process.env.CLIENT_URL || "http://localhost:5173",
+  })
+
+  await transporter.sendMail({
+    from: process.env.EMAIL,
+    to,
+    subject: "Minor Adjustments Requested – ListGreenLight",
     html,
   })
 }
