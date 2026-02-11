@@ -160,6 +160,12 @@ export const getPropertyByUploadToken = async (req, res) => {
         email: property.userId?.email,
         phoneNo: property.userId?.phoneNo,
       },
+      approvalType: property.approvalType || null,
+      approved: !!property.approved,
+      approvedAt: property.approvedAt || null,
+      feedbackSubmitted: !!property.feedbackSubmitted,
+      feedback: property.feedback || "",
+      feedbackSubmittedAt: property.feedbackSubmittedAt || null,
     })
   } catch (error) {
     console.error("Get property by upload token error:", error)
@@ -167,9 +173,10 @@ export const getPropertyByUploadToken = async (req, res) => {
   }
 }
 
+// POST send approval email => post /api/property/send-approval-email
 export const sendApprovalEmailController = async (req, res) => {
   try {
-    const { token } = req.body
+    const { token, approvalType } = req.body
 
     if (!token) {
       return res.status(400).json({ message: "token is required" })
@@ -180,18 +187,41 @@ export const sendApprovalEmailController = async (req, res) => {
       return res.status(404).json({ message: "Invalid or expired upload link" })
     }
 
-    const user = property.userId
-    if (!user?.email) {
-      return res.status(400).json({ message: "User email not found for this property" })
+    
+    if (property.approvalType || property.feedbackSubmitted) {
+      return res.status(200).json({
+        message: "Property already finalized",
+        approvalType: property.approvalType || null,
+        feedbackSubmitted: !!property.feedbackSubmitted,
+      })
     }
 
-    await sendApprovalEmail({
-      to: user.email,
-      userName: user.name,
-      propertyAddress: property.address,
-    })
+    const finalApprovalType = approvalType || "good-as-is"
 
-    return res.json({ message: "Approval email sent" })
+    property.approvalType = finalApprovalType
+    property.approved = true
+    property.approvedAt = new Date()
+    await property.save()
+
+    const user = property.userId
+    if (user?.email) {
+      try {
+        await sendApprovalEmail({
+          to: user.email,
+          userName: user.name,
+          propertyAddress: property.address,
+        })
+      } catch (emailErr) {
+        console.error("Send approval email error:", emailErr)
+      }
+    }
+
+    return res.json({
+      message: "Property approved",
+      approvalType: property.approvalType,
+      approved: property.approved,
+      approvedAt: property.approvedAt,
+    })
   } catch (error) {
     console.error("Send approval email error:", error)
     return res.status(500).json({ message: "Server error" })
@@ -199,6 +229,7 @@ export const sendApprovalEmailController = async (req, res) => {
 }
 
 
+// POST send feedback => post /api/property/send-feedback
 export const sendFeedbackController = async (req, res) => {
   try {
     const { token, feedback } = req.body
@@ -212,24 +243,46 @@ export const sendFeedbackController = async (req, res) => {
       return res.status(404).json({ message: "Invalid or expired upload link" })
     }
 
-    const user = property.userId
-    if (!user?.email) {
-      return res.status(400).json({ message: "User email not found for this property" })
+    if (property.approvalType || property.feedbackSubmitted) {
+      return res.status(200).json({
+        message: "Property already finalized",
+        approvalType: property.approvalType || null,
+        feedbackSubmitted: !!property.feedbackSubmitted,
+        feedback: property.feedback || "",
+      })
     }
 
-    await sendFeedbackEmail({
-      to: user.email,
-      userName: user.name,
-      propertyAddress: property.address,
-      feedback: feedback || "",
-    })
+    property.feedbackSubmitted = true
+    property.feedback = feedback || ""
+    property.feedbackSubmittedAt = new Date()
+    await property.save()
 
-    return res.json({ message: "Feedback email sent" })
+    const user = property.userId
+    if (user?.email) {
+      try {
+        await sendFeedbackEmail({
+          to: user.email,
+          userName: user.name,
+          propertyAddress: property.address,
+          feedback: feedback || "",
+        })
+      } catch (emailErr) {
+        console.error("Send feedback email error:", emailErr)
+      }
+    }
+
+    return res.json({
+      message: "Feedback submitted",
+      feedbackSubmitted: property.feedbackSubmitted,
+      feedback: property.feedback,
+      feedbackSubmittedAt: property.feedbackSubmittedAt,
+    })
   } catch (error) {
     console.error("Send feedback email error:", error)
     return res.status(500).json({ message: "Server error" })
   }
 }
+
 
 
 // get details => get /api/property/get-details

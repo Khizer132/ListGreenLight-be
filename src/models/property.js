@@ -62,9 +62,31 @@ const propertySchema = new mongoose.Schema(
       enum: ["strict", "lenient"],
       default: "strict",
     },
+    approvalType: {
+      type: String,
+      enum: ["good-as-is", "lgl-approve", null],
+      default: null,
+    },
+    approved: {
+      type: Boolean,
+      default: false,
+    },
+    approvedAt: {
+      type: Date,
+    },
+
+    feedbackSubmitted: {
+      type: Boolean,
+      default: false,
+    },
+    feedback: {
+      type: String,
+      default: "",
+    },
+    feedbackSubmittedAt: {
+      type: Date,
+    },
   },
-
-
   { timestamps: true }
 )
 
