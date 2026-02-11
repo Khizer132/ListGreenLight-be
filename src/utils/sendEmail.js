@@ -18,7 +18,7 @@ function getUploadLinkEmailHtml(options) {
     propertyAddress,
     uploadPhotoLink,  
     year = new Date().getFullYear(),
-    websiteUrl = process.env.CLIENT_URL || "http://localhost:5173",
+    websiteUrl = process.env.CLIENT_URL,
   } = options
 
 
@@ -89,7 +89,7 @@ function getApprovalEmailHtml(options) {
     userName,
     propertyAddress,
     year = new Date().getFullYear(),
-    websiteUrl = process.env.CLIENT_URL || "http://localhost:5173",
+    websiteUrl = process.env.CLIENT_URL,
   } = options
 
   return `
@@ -177,7 +177,7 @@ export async function sendApprovalEmail(options) {
     userName: userName || "Customer",
     propertyAddress: propertyAddress || "your property",
     year: new Date().getFullYear(),
-    websiteUrl: process.env.CLIENT_URL || "http://localhost:5173",
+    websiteUrl: process.env.CLIENT_URL,
   })
 
   await transporter.sendMail({
@@ -197,7 +197,7 @@ function getFeedbackEmailHtml(options) {
     propertyAddress,
     feedback,
     year = new Date().getFullYear(),
-    websiteUrl = process.env.CLIENT_URL || "http://localhost:5173",
+    websiteUrl = process.env.CLIENT_URL,
   } = options
 
   return `
@@ -257,7 +257,7 @@ export async function sendFeedbackEmail(options) {
     propertyAddress: propertyAddress || "—",
     feedback: feedback || "No feedback provided",
     year: new Date().getFullYear(),
-    websiteUrl: process.env.CLIENT_URL || "http://localhost:5173",
+    websiteUrl: process.env.CLIENT_URL,
   })
 
   await transporter.sendMail({

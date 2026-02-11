@@ -107,7 +107,7 @@ export const confirmPaymentAndGetUploadLink = async (req, res) => {
       { upsert: true, new: true }
     )
 
-    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173"
+    const frontendUrl = process.env.CLIENT_URL || "http://localhost:5173"
     const uploadPhotoLink = `${frontendUrl}/upload-photos/${property.uploadToken}`
 
     try {
